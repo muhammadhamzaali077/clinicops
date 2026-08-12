@@ -55,6 +55,16 @@ jobs:
         with:
           node-version: "22"
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        # Vercel's Python builder shells out to uv during `vercel build`. It exists in
+        # Vercel's own cloud builders but not on a bare runner, so building here needs
+        # it installed explicitly.
+        run: pip install uv
+
       - name: Install Vercel CLI
         run: npm i -g vercel
 
@@ -99,6 +109,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        # Same reason as the preview job: `vercel build` requires uv on the runner.
+        run: pip install uv
 
       - name: Install Vercel CLI
         run: npm i -g vercel
