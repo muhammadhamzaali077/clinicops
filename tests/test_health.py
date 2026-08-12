@@ -19,7 +19,7 @@ client = TestClient(app)
 def test_health_returns_200_and_status_ok() -> None:
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "v": 2}
 
 
 def test_health_through_vercel_entrypoint() -> None:
@@ -27,7 +27,7 @@ def test_health_through_vercel_entrypoint() -> None:
     with TestClient(vercel_app) as vercel_client:
         response = vercel_client.get("/api/index/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "v": 2}
 
 
 def test_prefix_matches_vercel_config() -> None:

@@ -19,11 +19,11 @@ app = FastAPI(title="ClinicOps API")
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health() -> dict[str, str | int]:
     """Report that the function is up and serving.
 
     Takes nothing and returns a fixed body. It deliberately checks nothing else — no
     database, no model, no agent — so a failure here means the function itself is not
     serving, and nothing more ambiguous than that.
     """
-    return {"status": "ok"}
+    return {"status": "ok", "v": 2}
