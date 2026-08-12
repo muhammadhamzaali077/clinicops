@@ -1,0 +1,148 @@
+name: CI
+
+# This pipeline is the ONLY thing allowed to deploy. Vercel's git auto-deploy is
+# disabled on purpose, so tests — and from step 05, the model quality gate — cannot
+# be bypassed by pushing to a branch Vercel is watching.
+#
+# Step 05 upgrades this same file (change-risk score, AI failure analysis, retry
+# only when FLAKY, rollback on failed smoke test). No AI features here yet.
+
+on:
+  push:
+  pull_request:
+
+# One run per ref. Prevents two production deploys racing each other, which on a
+# single Vercel project means the loser silently becomes live.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# The Vercel CLI reads these from the environment; `vercel pull` needs both.
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest -q
+
+  preview:
+    name: preview
+    needs: test
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Vercel CLI
+        run: npm i -g vercel
+
+      - name: Pull preview environment
+        run: vercel pull --yes --environment=preview --token=$VERCEL_TOKEN
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build
+        run: vercel build --token=$VERCEL_TOKEN
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy preview
+        id: deploy
+        run: |
+          set -euo pipefail
+          url="$(vercel deploy --prebuilt --token=$VERCEL_TOKEN | tail -n 1)"
+          echo "Preview URL: $url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Comment the preview URL on the PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          gh pr comment "$PR" --body "Preview deployed: ${URL}
+
+          Health check: ${URL}/health"
+
+  deploy:
+    name: deploy
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Vercel CLI
+        run: npm i -g vercel
+
+      - name: Pull production environment
+        run: vercel pull --yes --environment=production --token=$VERCEL_TOKEN
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build
+        # --prod is required here: without it the prebuilt output in .vercel/output
+        # is a preview build, and `deploy --prebuilt --prod` would publish it as
+        # production.
+        run: vercel build --prod --token=$VERCEL_TOKEN
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy production
+        id: deploy
+        run: |
+          set -euo pipefail
+          url="$(vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN | tail -n 1)"
+          echo "Production URL: $url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Wait for production to report healthy
+        # Up to 10 attempts, 10s apart. Fails the job if it never returns healthy,
+        # so a broken deploy does not pass silently.
+        env:
+          CLINIC_URL: ${{ secrets.CLINIC_URL }}
+        run: |
+          set -uo pipefail
+          for i in $(seq 1 10); do
+            code="$(curl -s -o body.txt -w '%{http_code}' --max-time 15 "$CLINIC_URL/health" || echo 000)"
+            if [ "$code" = "200" ] && grep -q '"status":"ok"' body.txt; then
+              echo "healthy on attempt $i"
+              exit 0
+            fi
+            echo "attempt $i/10: HTTP $code $(head -c 200 body.txt 2>/dev/null)"
+            if [ "$i" -lt 10 ]; then
+              sleep 10
+            fi
+          done
+          echo "::error::$CLINIC_URL/health never returned healthy after 10 attempts"
+          exit 1

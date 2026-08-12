@@ -10,3 +10,6 @@ plan.json
 # Patient data — never committed. The file lives on the operator's disk only.
 # src/pipeline reads it from data/raw/ at runtime; git never sees it.
 data/raw/*.xlsx
+
+.vercel
+.env*
