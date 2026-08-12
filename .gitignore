@@ -1,0 +1,12 @@
+.venv
+__pycache__
+.env
+data/processed/*
+!data/processed/.gitkeep
+models/*.pkl
+tfplan.bin
+plan.json
+
+# Patient data — never committed. The file lives on the operator's disk only.
+# src/pipeline reads it from data/raw/ at runtime; git never sees it.
+data/raw/*.xlsx
