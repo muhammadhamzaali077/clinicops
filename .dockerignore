@@ -1,0 +1,22 @@
+# The Dockerfile does `COPY . ./`, so anything not excluded here is baked into the
+# image. Two of these are not optional:
+#   .env           holds OPENAI_API_KEY and DATABASE_URL (rule 3)
+#   data/raw/*.xlsx holds patient records — compute is stateless and never carries
+#                  patient data (rule 6, ADR-001). The pipeline reads the Excel on the
+#                  operator's machine, not in the Space.
+.env
+data/raw/*.xlsx
+
+# Dead weight: a Windows virtualenv is unusable in a Linux image, and the image
+# installs its own dependencies from requirements.txt.
+.venv
+.git
+__pycache__
+*.pyc
+.pytest_cache
+
+# Build artifacts that never belong in the image.
+models/*.pkl
+data/processed/*
+tfplan.bin
+plan.json
